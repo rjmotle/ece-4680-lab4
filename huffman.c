@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 
 struct node {
     unsigned int freq;
@@ -12,42 +13,11 @@ int nodeCompare(const void *a, const void *b) {
     return (* (struct node **) a)->freq - (* (struct node **) b)->freq;
 }
 
-void genSymbolTable(struct node *node) {
-    if (node->freq == 1) {
-        /* generate table */
-    } else {
-        if (node->left != NULL) genSymbolTable(node->left);
-        if (node->right != NULL) genSymbolTable(node->left);
-    }
-}
+struct node *buildTree(unsigned int freq[256]) {
 
-int main(int argc, char *argv[]) {
-    FILE *src, *dest;
-    unsigned char buffer;
-    unsigned int freq[256];
     struct node *node_ptrs[256];
     unsigned int node_count = 0;
     struct node **node_head, *node_temp;
-
-    /* show proper usage if insufficient command line args */
-    if (argc != 3) {
-        printf("usage: huffman [src] [dest]\n");
-        return 1;
-    }
-
-    /* try to open files, give error if cannot */
-    if ((src = fopen(argv[1], "rb")) == NULL) {
-        printf("cannot open %s for reading.\n", argv[1]);
-        return 1;
-    }
-    if ((dest = fopen(argv[2], "wb")) == NULL) {
-        printf("cannot open %s for writing.\n", argv[2]);
-        return 1;
-    }
-
-    /* calculate frequencies of symbols */
-    for (int i = 0; i < 256; i++) freq[i] = 0;
-    while (fread(&buffer, sizeof(unsigned char), 1, src)) freq[buffer]++;
 
     /* prepare array for symbols that appear */
     for (int i = 0; i < 256; i++) {
@@ -58,21 +28,203 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if (node_count == 0)
+        return NULL;
+
     /* sort nodes smallest to large and create binary tree */
     node_head = node_ptrs;
     while (node_count > 1) {
-        qsort(node_head, node_count--, sizeof(struct node *), nodeCompare);
+        qsort(node_head, node_count, sizeof(struct node *), nodeCompare);
         node_temp = calloc(1, sizeof(struct node));
         node_temp->freq = node_head[0]->freq + node_head[1]->freq;
         node_temp->left = node_head[0];
         node_temp->right = node_head[1];
-        node_head[1] = node_temp;
-        node_head++;
+        
+        node_ptrs[0] = node_temp;
+        /* shift nodes down */
+        for (unsigned int i = 1; i < node_count - 1; i++) {
+            node_ptrs[i] = node_ptrs[i+1];
+        }
+
+        node_count--;
     }
 
-    /* write out */
-    fseek(src, 0, SEEK_SET);
-    
+    return node_ptrs[0];
+}
+
+void genSymbolTable(struct node *node) {
+    if (node->freq == 1) {
+        /* generate table */
+    } else {
+        if (node->left != NULL) genSymbolTable(node->left);
+        if (node->right != NULL) genSymbolTable(node->left); 
+    }
+}
+
+void writeCompressed(FILE *src, FILE *dest, char *symbolTable[256]) {
+    unsigned char buffer;
+    unsigned char outByte = 0;
+    int bitCount = 0;
+
+    while (fread(&buffer, 1, 1, src)) {
+        char *code = symbolTable[buffer];
+
+        /* string code -> bits code */
+        for (int i = 0; code[i] != '\0'; i++) {
+            outByte <<= 1;
+
+            if (code[i] == '1')
+                outByte |= 1;
+
+            bitCount++;
+
+            if (bitCount == 8) {
+                fwrite(&outByte, 1, 1, dest);
+                outByte = 0;
+                bitCount = 0;
+            }
+        }
+    }
+
+    /* remaining bits, pad with 0s */
+    if (bitCount > 0) {
+        outByte <<= (8 - bitCount);
+        fwrite(&outByte, 1, 1, dest);
+    }
+}
+
+void writeDecompressed(FILE *compressed,
+                FILE *output,
+                struct node *root,
+                unsigned int totalSymbols)
+{
+    struct node *current = root;
+    unsigned char byte;
+    unsigned int decoded = 0;
+
+    while (fread(&byte, 1, 1, compressed) && decoded < totalSymbols) {
+
+        for (int i = 7; i >= 0; i--) {
+
+            unsigned char bit = (byte >> i) & 0x01;
+
+            /* follow the tree */
+            if (bit == 0)
+                current = current->left;
+            else if (bit == 1)
+                current = current->right;
+
+            /* end of tree */
+            if (current->left == NULL && current->right == NULL) {
+
+                fwrite(&current->symbol, 1, 1, output);
+                decoded++;
+
+                /* reset to root */
+                current = root;
+
+                /* skip padded bits from compress */
+                if (decoded == totalSymbols)
+                    break;
+            }
+        }
+    }
+}
+
+void freeTree(struct node *node) {
+    if (node == NULL)
+        return;
+    freeTree(node->left);
+    freeTree(node->right);
+    free(node);       
+}
+
+int main(int argc, char *argv[]) {
+    FILE *src, *dest;
+    unsigned char buffer;
+    unsigned int freq[256];
+    struct node *root;
+
+
+    /* show proper usage if insufficient command line args */
+    if (argc != 4) {
+        printf("usage: huffman [comp/decomp] [src] [dest]\n");
+        return 1;
+    }
+
+    /* try to open files, give error if cannot */
+    if ((src = fopen(argv[2], "rb")) == NULL) {
+        printf("cannot open %s for reading.\n", argv[1]);
+        return 1;
+    }
+    if ((dest = fopen(argv[3], "wb")) == NULL) {
+        printf("cannot open %s for writing.\n", argv[2]);
+        return 1;
+    }
+
+    if (strcmp(argv[1], "comp") == 0) // Compression
+    {
+            
+        /* calculate frequencies of symbols */
+        for (int i = 0; i < 256; i++) freq[i] = 0;
+        while (fread(&buffer, sizeof(unsigned char), 1, src)) freq[buffer]++;
+
+        /* write freqency data */
+        FILE *freqFile = fopen("freq.bin", "wb");
+        if (!freqFile) {
+            printf("cannot open freq.bin for writing\n");
+            return 1;
+        }
+        fwrite(freq, sizeof(unsigned int), 256, freqFile);
+        fclose(freqFile);
+
+
+        root = buildTree(freq);
+        if (!root) {
+            printf("Empty file\n");
+            return 0;
+        }
+
+
+        char *symbolTable[256] = {0};
+        /* create symbol table */
+        /* Todo */
+
+        /* set file to beginning */
+        fseek(src, 0, SEEK_SET);
+
+        /* uncomment when symbol table is built */
+        //writeCompressed(src, dest, symbolTable);
+        freeTree(root);
+
+    }
+    else if (strcmp(argv[1], "decomp") == 0) // Decompression
+    {
+        unsigned int totalSymbols = 0;
+
+        FILE *freqFile = fopen("freq.bin", "rb");
+        if (!freqFile) {
+            printf("cannot open freq.bin for writing\n");
+            return 1;
+        }
+
+        fread(freq, sizeof(unsigned int), 256, freqFile);
+
+        root = buildTree(freq);
+        if (!root) {
+            printf("Empty file\n");
+            return 0;
+        }
+
+        for (int i = 0; i < 256; i++)
+            totalSymbols += freq[i];
+
+        writeDecompressed(src, dest, root, totalSymbols);
+        freeTree(root);
+    }
+        
+    fclose(dest);
     fclose(src);
+
     return 0;
 }
