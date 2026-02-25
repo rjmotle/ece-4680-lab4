@@ -93,10 +93,8 @@ void writeCompressed(FILE *src, FILE *dest, char *symbolTable[256]) {
     }
 }
 
-void writeDecompressed(FILE *compressed,
-                FILE *output,
-                struct node *root,
-                unsigned int totalSymbols)
+void writeDecompressed(FILE *compressed, FILE *output, struct node *root,
+                       unsigned int totalSymbols)
 {
     struct node *current = root;
     unsigned char byte;
