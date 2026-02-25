@@ -58,5 +58,9 @@ dkms.conf
 *CompFiles
 *DecompFiles
 
+# lab 4
+freq.bin
+lab4
+
 # Mac 
 *.DS_Store
