@@ -14,10 +14,9 @@ int nodeCompare(const void *a, const void *b) {
 }
 
 struct node *buildTree(unsigned int freq[256]) {
-
     struct node *node_ptrs[256];
     unsigned int node_count = 0;
-    struct node **node_head, *node_temp;
+    struct node *node_temp;
 
     /* prepare array for symbols that appear */
     for (int i = 0; i < 256; i++) {
@@ -32,33 +31,49 @@ struct node *buildTree(unsigned int freq[256]) {
         return NULL;
 
     /* sort nodes smallest to large and create binary tree */
-    node_head = node_ptrs;
     while (node_count > 1) {
-        qsort(node_head, node_count, sizeof(struct node *), nodeCompare);
+        qsort(node_ptrs, node_count--, sizeof(struct node *), nodeCompare);
         node_temp = calloc(1, sizeof(struct node));
-        node_temp->freq = node_head[0]->freq + node_head[1]->freq;
-        node_temp->left = node_head[0];
-        node_temp->right = node_head[1];
+        node_temp->freq = node_ptrs[0]->freq + node_ptrs[1]->freq;
+        node_temp->left = node_ptrs[0];
+        node_temp->right = node_ptrs[1];
         
         node_ptrs[0] = node_temp;
         /* shift nodes down */
-        for (unsigned int i = 1; i < node_count - 1; i++) {
+        for (unsigned int i = 1; i <= node_count; i++) {
             node_ptrs[i] = node_ptrs[i+1];
         }
-
-        node_count--;
     }
 
     return node_ptrs[0];
 }
 
-void genSymbolTable(struct node *node) {
-    if (node->freq == 1) {
-        /* generate table */
+void genSymbolTableInner(struct node *node, char **symbolTable,
+                         char bitCode[256], unsigned int bitCount) {
+    if (node->left == NULL && node->right == NULL) {
+        bitCode[bitCount] = '\0';
+        
+        /* store string code in symbol table */
+        symbolTable[node->symbol] = calloc(bitCount, sizeof(char));
+        for (int i = 0; i < bitCount; i++) symbolTable[node->symbol][i] = bitCode[i];
     } else {
-        if (node->left != NULL) genSymbolTable(node->left);
-        if (node->right != NULL) genSymbolTable(node->left); 
+        if (node->left != NULL) {
+            /* add 0 to code for left child */
+            bitCode[bitCount] = '0';
+            genSymbolTableInner(node->left, symbolTable, bitCode, bitCount+1);
+        }
+        if (node->right != NULL){
+            /* add 1 to code for right child */
+            bitCode[bitCount] = '1';
+            genSymbolTableInner(node->right, symbolTable, bitCode, bitCount+1);
+        }
     }
+
+}
+
+void genSymbolTable(struct node *node, char **symbolTable) {
+    char bitCode[256];
+    genSymbolTableInner(node, symbolTable, bitCode, 0);
 }
 
 void writeCompressed(FILE *src, FILE *dest, char *symbolTable[256]) {
@@ -185,13 +200,12 @@ int main(int argc, char *argv[]) {
 
         char *symbolTable[256] = {0};
         /* create symbol table */
-        /* Todo */
+        genSymbolTable(root, symbolTable);
 
         /* set file to beginning */
         fseek(src, 0, SEEK_SET);
 
-        /* uncomment when symbol table is built */
-        //writeCompressed(src, dest, symbolTable);
+        writeCompressed(src, dest, symbolTable);
         freeTree(root);
 
     }
