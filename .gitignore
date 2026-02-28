@@ -53,3 +53,14 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Compress & Decompressed files
+*CompFiles
+*DecompFiles
+
+# lab 4
+freq.bin
+lab4
+
+# Mac 
+*.DS_Store
