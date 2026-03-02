@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 
 struct node {
     unsigned int freq;
@@ -54,7 +54,7 @@ void genSymbolTableInner(struct node *node, char **symbolTable,
         bitCode[bitCount] = '\0';
         
         /* store string code in symbol table */
-        symbolTable[node->symbol] = calloc(bitCount, sizeof(char));
+        symbolTable[node->symbol] = calloc(bitCount + 1, sizeof(char));
         for (int i = 0; i < bitCount; i++) symbolTable[node->symbol][i] = bitCode[i];
     } else {
         if (node->left != NULL) {
@@ -73,6 +73,15 @@ void genSymbolTableInner(struct node *node, char **symbolTable,
 
 void genSymbolTable(struct node *node, char **symbolTable) {
     char bitCode[256];
+
+    // special case: only one symbol in tree
+    if (node->left == NULL && node->right == NULL) {
+        symbolTable[node->symbol] = calloc(2, sizeof(char));
+        symbolTable[node->symbol][0] = '0';
+        symbolTable[node->symbol][1] = '\0';
+        return;
+    }
+
     genSymbolTableInner(node, symbolTable, bitCode, 0);
 }
 
@@ -110,6 +119,15 @@ void writeCompressed(FILE *src, FILE *dest, char *symbolTable[256]) {
 
 void writeDecompressed(FILE *compressed, FILE *output, struct node *root,
                        unsigned int totalSymbols) {
+                        
+    // special case: only one symbol in tree
+    if (root->left == NULL && root->right == NULL) {
+        for (unsigned int i = 0; i < totalSymbols; i++) {
+            fwrite(&root->symbol, 1, 1, output);
+        }
+        return;
+    }
+    
     struct node *current = root;
     unsigned char byte;
     unsigned int decoded = 0;
@@ -166,11 +184,11 @@ int main(int argc, char *argv[]) {
 
     /* try to open files, give error if cannot */
     if ((src = fopen(argv[2], "rb")) == NULL) {
-        printf("cannot open %s for reading.\n", argv[1]);
+        printf("cannot open %s for reading.\n", argv[2]);
         return 1;
     }
     if ((dest = fopen(argv[3], "wb")) == NULL) {
-        printf("cannot open %s for writing.\n", argv[2]);
+        printf("cannot open %s for writing.\n", argv[3]);
         return 1;
     }
 
@@ -206,6 +224,12 @@ int main(int argc, char *argv[]) {
         fseek(src, 0, SEEK_SET);
 
         writeCompressed(src, dest, symbolTable);
+
+        // free symbol table
+        for (int i = 0; i < 256; i++) {
+            free(symbolTable[i]);
+        }
+
         freeTree(root);
 
     }
